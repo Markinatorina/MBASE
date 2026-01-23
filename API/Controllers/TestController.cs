@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using MBASE_DAL.Repositories;
+using DAL.Repositories;
 
-namespace MBASE_API.Controllers
+namespace API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]

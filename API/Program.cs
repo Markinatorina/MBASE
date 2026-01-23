@@ -1,4 +1,4 @@
-using MBASE_DAL;
+using DAL;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +23,7 @@ builder.Services.AddJanusGraph(o =>
 });
 
 // FHIR service
-builder.Services.AddScoped<MBASE_BLL.Services.FHIRService>();
+builder.Services.AddScoped<BLL.Services.FHIRService>();
 
 var app = builder.Build();
 

@@ -5,11 +5,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
-using MBASE_DAL.Repositories;
+using DAL.Repositories;
 using Json.Schema;
 using System.Linq;
 
-namespace MBASE_BLL.Services
+namespace BLL.Services
 {
     public class FHIRService
     {

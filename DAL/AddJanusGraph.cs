@@ -1,11 +1,11 @@
 using Gremlin.Net.Driver;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using MBASE_DAL.Internal;
-using MBASE_DAL.Options;
-using MBASE_DAL.Repositories;
+using DAL.Internal;
+using DAL.Options;
+using DAL.Repositories;
 
-namespace MBASE_DAL;
+namespace DAL;
 
 public static class ServiceCollectionExtensions
 {

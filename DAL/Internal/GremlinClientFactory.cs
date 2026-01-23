@@ -1,9 +1,9 @@
 using Gremlin.Net.Driver;
 using Gremlin.Net.Structure.IO.GraphBinary;
 using Microsoft.Extensions.Options;
-using MBASE_DAL.Options;
+using DAL.Options;
 
-namespace MBASE_DAL.Internal;
+namespace DAL.Internal;
 
 public interface IGremlinClientFactory
 {

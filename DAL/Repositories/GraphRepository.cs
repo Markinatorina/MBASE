@@ -3,7 +3,7 @@ using Gremlin.Net.Driver.Messages;
 using Gremlin.Net.Process;
 using Gremlin.Net.Structure;
 
-namespace MBASE_DAL.Repositories;
+namespace DAL.Repositories;
 
 public interface IGraphRepository
 {

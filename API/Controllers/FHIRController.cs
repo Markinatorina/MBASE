@@ -1,10 +1,10 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
-using MBASE_BLL.Services;
-using MBASE_DAL.Repositories;
+using BLL.Services;
+using DAL.Repositories;
 
-namespace MBASE_API.Controllers
+namespace API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]

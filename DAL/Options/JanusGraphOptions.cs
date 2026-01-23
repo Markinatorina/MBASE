@@ -1,4 +1,4 @@
-namespace MBASE_DAL.Options;
+namespace DAL.Options;
 
 public class JanusGraphOptions
 {
