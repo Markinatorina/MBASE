@@ -34,9 +34,43 @@ internal sealed class GraphRepository : IGraphRepository
 {
     private readonly GremlinClient _client;
 
+    private static class Ops
+    {
+        public const string AddVertex = nameof(AddVertex);
+        public const string AddVertexAndReturnId = nameof(AddVertexAndReturnId);
+        public const string AddEdge = nameof(AddEdge);
+        public const string GetVertexById = nameof(GetVertexById);
+        public const string UpdateVertexProperties = nameof(UpdateVertexProperties);
+        public const string DeleteVertex = nameof(DeleteVertex);
+        public const string CountVertices = nameof(CountVertices);
+        public const string AddEdgeByProperty = nameof(AddEdgeByProperty);
+        public const string UpsertVertexByProperty = nameof(UpsertVertexByProperty);
+        public const string UpsertVertexAndReturnId = nameof(UpsertVertexAndReturnId);
+    }
+
+    private static class Scripts
+    {
+        public const string AddVertex = "g.addV(label)";
+        public const string AddEdge = "g.V(outId).addE(label).to(g.V(inId))";
+        public const string GetVertexById = "g.V(id)";
+        public const string DeleteVertex = "g.V(id).drop()";
+        public const string CountVertices = "g.V().count()";
+        public const string AddEdgeByProperty = "g.V().has(outLabel, outKey, outVal).addE(label).to(g.V().has(inLabel, inKey, inVal))";
+        public const string UpsertVertexByProperty = "g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))";
+    }
+
     public GraphRepository(GremlinClient client)
     {
         _client = client;
+    }
+
+    private static string FormatBindingsForDiagnostic(Dictionary<string, object>? bindings)
+    {
+        if (bindings is null || bindings.Count == 0)
+            return "<none>";
+
+        // Only include keys (never values) to avoid leaking payloads.
+        return string.Join(", ", bindings.Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     private static void AppendProperties(StringBuilder script, Dictionary<string, object> bindings, IDictionary<string, object>? properties)
@@ -52,18 +86,33 @@ internal sealed class GraphRepository : IGraphRepository
         }
     }
 
-    private async Task<IReadOnlyCollection<T>> SubmitAsync<T>(string script, Dictionary<string, object>? bindings, CancellationToken ct)
+    private async Task<IReadOnlyCollection<T>> SubmitAsync<T>(
+        string operation,
+        string script,
+        Dictionary<string, object>? bindings,
+        CancellationToken ct)
     {
-        var messageBuilder = RequestMessage.Build(Tokens.OpsEval)
-            .AddArgument(Tokens.ArgsGremlin, script);
-
-        if (bindings is not null && bindings.Count > 0)
+        try
         {
-            messageBuilder = messageBuilder.AddArgument(Tokens.ArgsBindings, bindings);
-        }
+            var messageBuilder = RequestMessage.Build(Tokens.OpsEval)
+                .AddArgument(Tokens.ArgsGremlin, script);
 
-        var message = messageBuilder.Create();
-        return await _client.SubmitAsync<T>(message, ct);
+            if (bindings is not null && bindings.Count > 0)
+            {
+                messageBuilder = messageBuilder.AddArgument(Tokens.ArgsBindings, bindings);
+            }
+
+            var message = messageBuilder.Create();
+            return await _client.SubmitAsync<T>(message, ct);
+        }
+        catch (Exception ex)
+        {
+            var bindingsInfo = FormatBindingsForDiagnostic(bindings);
+
+            throw new InvalidOperationException(
+                $"Gremlin operation '{operation}' failed. Bindings(keys)=[{bindingsInfo}] Script={script}",
+                ex);
+        }
     }
 
     private static IDictionary<string, object> MaterializeProperties(object? input)
@@ -113,30 +162,30 @@ internal sealed class GraphRepository : IGraphRepository
 
     public async Task<GraphVertex> AddVertexAsync(string label, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.addV(label)");
+        var script = new StringBuilder(Scripts.AddVertex);
         var bindings = new Dictionary<string, object> { ["label"] = label };
 
         AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Vertex>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<Vertex>(Ops.AddVertex, script.ToString(), bindings, ct);
         return ToGraphVertex(result.First());
     }
 
     public async Task<string?> AddVertexAndReturnIdAsync(string label, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.addV(label)");
+        var script = new StringBuilder(Scripts.AddVertex);
         var bindings = new Dictionary<string, object> { ["label"] = label };
 
         AppendProperties(script, bindings, properties);
 
         script.Append(".id()");
-        var result = await SubmitAsync<object>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<object>(Ops.AddVertexAndReturnId, script.ToString(), bindings, ct);
         return result.FirstOrDefault()?.ToString();
     }
 
     public async Task<GraphEdge> AddEdgeAsync(string label, string outVertexId, string inVertexId, IDictionary<string, object>? properties = null, CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.V(outId).addE(label).to(g.V(inId))");
+        var script = new StringBuilder(Scripts.AddEdge);
         var bindings = new Dictionary<string, object>
         {
             ["label"] = label,
@@ -146,38 +195,38 @@ internal sealed class GraphRepository : IGraphRepository
 
         AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Edge>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<Edge>(Ops.AddEdge, script.ToString(), bindings, ct);
         return ToGraphEdge(result.First());
     }
 
     public async Task<GraphVertex?> GetVertexByIdAsync(string id, CancellationToken ct = default)
     {
-        var result = await SubmitAsync<Vertex>("g.V(id)", new Dictionary<string, object> { ["id"] = id }, ct);
+        var result = await SubmitAsync<Vertex>(Ops.GetVertexById, Scripts.GetVertexById, new Dictionary<string, object> { ["id"] = id }, ct);
         var v = result.FirstOrDefault();
         return v is null ? null : ToGraphVertex(v);
     }
 
     public async Task<bool> UpdateVertexPropertiesAsync(string id, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.V(id)");
+        var script = new StringBuilder(Scripts.GetVertexById);
         var bindings = new Dictionary<string, object> { ["id"] = id };
 
         AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Vertex>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<Vertex>(Ops.UpdateVertexProperties, script.ToString(), bindings, ct);
         return result.Any();
     }
 
     public async Task<bool> DeleteVertexAsync(string id, CancellationToken ct = default)
     {
-        var result = await SubmitAsync<object>("g.V(id).drop()", new Dictionary<string, object> { ["id"] = id }, ct);
+        var result = await SubmitAsync<object>(Ops.DeleteVertex, Scripts.DeleteVertex, new Dictionary<string, object> { ["id"] = id }, ct);
         // JanusGraph returns empty result set for drop; treat as success if no exception
         return true;
     }
 
     public async Task<long> CountVerticesAsync(CancellationToken ct = default)
     {
-        var result = await SubmitAsync<long>("g.V().count()", null, ct);
+        var result = await SubmitAsync<long>(Ops.CountVertices, Scripts.CountVertices, null, ct);
         return result.FirstOrDefault();
     }
 
@@ -188,7 +237,7 @@ internal sealed class GraphRepository : IGraphRepository
         IDictionary<string, object>? properties = null,
         CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.V().has(outLabel, outKey, outVal).addE(label).to(g.V().has(inLabel, inKey, inVal))");
+        var script = new StringBuilder(Scripts.AddEdgeByProperty);
         var bindings = new Dictionary<string, object>
         {
             ["label"] = label,
@@ -202,14 +251,14 @@ internal sealed class GraphRepository : IGraphRepository
 
         AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Edge>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<Edge>(Ops.AddEdgeByProperty, script.ToString(), bindings, ct);
         var e = result.FirstOrDefault();
         return e is null ? null : ToGraphEdge(e);
     }
 
     public async Task<GraphVertex> UpsertVertexByPropertyAsync(string label, string key, object value, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))");
+        var script = new StringBuilder(Scripts.UpsertVertexByProperty);
         var bindings = new Dictionary<string, object>
         {
             ["lbl"] = label,
@@ -219,13 +268,13 @@ internal sealed class GraphRepository : IGraphRepository
 
         AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Vertex>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<Vertex>(Ops.UpsertVertexByProperty, script.ToString(), bindings, ct);
         return ToGraphVertex(result.First());
     }
 
     public async Task<string?> UpsertVertexAndReturnIdAsync(string label, string key, object value, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = new StringBuilder("g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))");
+        var script = new StringBuilder(Scripts.UpsertVertexByProperty);
         var bindings = new Dictionary<string, object>
         {
             ["lbl"] = label,
@@ -236,7 +285,7 @@ internal sealed class GraphRepository : IGraphRepository
         AppendProperties(script, bindings, properties);
 
         script.Append(".id()");
-        var result = await SubmitAsync<object>(script.ToString(), bindings, ct);
+        var result = await SubmitAsync<object>(Ops.UpsertVertexAndReturnId, script.ToString(), bindings, ct);
         return result.FirstOrDefault()?.ToString();
     }
 }
