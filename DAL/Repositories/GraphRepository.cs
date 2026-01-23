@@ -2,6 +2,7 @@ using Gremlin.Net.Driver;
 using Gremlin.Net.Driver.Messages;
 using Gremlin.Net.Process;
 using Gremlin.Net.Structure;
+using System.Text;
 
 namespace DAL.Repositories;
 
@@ -33,6 +34,19 @@ internal sealed class GraphRepository : IGraphRepository
         _client = client;
     }
 
+    private static void AppendProperties(StringBuilder script, Dictionary<string, object> bindings, IDictionary<string, object>? properties)
+    {
+        if (properties is null || properties.Count == 0)
+            return;
+
+        foreach (var (key, value) in properties)
+        {
+            var bindingKey = $"p_{key}";
+            script.Append($".property('{key}', {bindingKey})");
+            bindings[bindingKey] = value!;
+        }
+    }
+
     private async Task<IReadOnlyCollection<T>> SubmitAsync<T>(string script, Dictionary<string, object>? bindings, CancellationToken ct)
     {
         var messageBuilder = RequestMessage.Build(Tokens.OpsEval)
@@ -44,48 +58,35 @@ internal sealed class GraphRepository : IGraphRepository
         }
 
         var message = messageBuilder.Create();
-        // GremlinClient does not expose a CT overload in all versions; if available, could pass ct via RequestOptions. Here we ignore ct.
-        return await _client.SubmitAsync<T>(message);
+        return await _client.SubmitAsync<T>(message, ct);
     }
 
     public async Task<Vertex> AddVertexAsync(string label, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = "g.addV(label)";
+        var script = new StringBuilder("g.addV(label)");
         var bindings = new Dictionary<string, object> { ["label"] = label };
 
-        foreach (var kv in properties)
-        {
-            var key = kv.Key;
-            var bindingKey = $"p_{key}";
-            script += $".property('{key}', {bindingKey})";
-            bindings[bindingKey] = kv.Value!;
-        }
+        AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Vertex>(script, bindings, ct);
+        var result = await SubmitAsync<Vertex>(script.ToString(), bindings, ct);
         return result.First();
     }
 
     public async Task<string?> AddVertexAndReturnIdAsync(string label, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = "g.addV(label)";
+        var script = new StringBuilder("g.addV(label)");
         var bindings = new Dictionary<string, object> { ["label"] = label };
 
-        foreach (var kv in properties)
-        {
-            var key = kv.Key;
-            var bindingKey = $"p_{key}";
-            script += $".property('{key}', {bindingKey})";
-            bindings[bindingKey] = kv.Value!;
-        }
+        AppendProperties(script, bindings, properties);
 
-        script += ".id()";
-        var result = await SubmitAsync<object>(script, bindings, ct);
+        script.Append(".id()");
+        var result = await SubmitAsync<object>(script.ToString(), bindings, ct);
         return result.FirstOrDefault()?.ToString();
     }
 
     public async Task<Edge> AddEdgeAsync(string label, string outVertexId, string inVertexId, IDictionary<string, object>? properties = null, CancellationToken ct = default)
     {
-        var script = "g.V(outId).addE(label).to(g.V(inId))";
+        var script = new StringBuilder("g.V(outId).addE(label).to(g.V(inId))");
         var bindings = new Dictionary<string, object>
         {
             ["label"] = label,
@@ -93,18 +94,9 @@ internal sealed class GraphRepository : IGraphRepository
             ["inId"] = inVertexId
         };
 
-        if (properties != null)
-        {
-            foreach (var kv in properties)
-            {
-                var key = kv.Key;
-                var bindingKey = $"p_{key}";
-                script += $".property('{key}', {bindingKey})";
-                bindings[bindingKey] = kv.Value!;
-            }
-        }
+        AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Edge>(script, bindings, ct);
+        var result = await SubmitAsync<Edge>(script.ToString(), bindings, ct);
         return result.First();
     }
 
@@ -116,16 +108,12 @@ internal sealed class GraphRepository : IGraphRepository
 
     public async Task<bool> UpdateVertexPropertiesAsync(string id, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = "g.V(id)";
+        var script = new StringBuilder("g.V(id)");
         var bindings = new Dictionary<string, object> { ["id"] = id };
-        foreach (var kv in properties)
-        {
-            var key = kv.Key;
-            var bindingKey = $"p_{key}";
-            script += $".property('{key}', {bindingKey})";
-            bindings[bindingKey] = kv.Value!;
-        }
-        var result = await SubmitAsync<Vertex>(script, bindings, ct);
+
+        AppendProperties(script, bindings, properties);
+
+        var result = await SubmitAsync<Vertex>(script.ToString(), bindings, ct);
         return result.Any();
     }
 
@@ -149,7 +137,7 @@ internal sealed class GraphRepository : IGraphRepository
         IDictionary<string, object>? properties = null,
         CancellationToken ct = default)
     {
-        var script = "g.V().has(outLabel, outKey, outVal).addE(label).to(g.V().has(inLabel, inKey, inVal))";
+        var script = new StringBuilder("g.V().has(outLabel, outKey, outVal).addE(label).to(g.V().has(inLabel, inKey, inVal))");
         var bindings = new Dictionary<string, object>
         {
             ["label"] = label,
@@ -161,24 +149,15 @@ internal sealed class GraphRepository : IGraphRepository
             ["inVal"] = inValue
         };
 
-        if (properties != null)
-        {
-            foreach (var kv in properties)
-            {
-                var key = kv.Key;
-                var bindingKey = $"p_{key}";
-                script += $".property('{key}', {bindingKey})";
-                bindings[bindingKey] = kv.Value!;
-            }
-        }
+        AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Edge>(script, bindings, ct);
+        var result = await SubmitAsync<Edge>(script.ToString(), bindings, ct);
         return result.FirstOrDefault();
     }
 
     public async Task<Vertex> UpsertVertexByPropertyAsync(string label, string key, object value, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = "g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))";
+        var script = new StringBuilder("g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))");
         var bindings = new Dictionary<string, object>
         {
             ["lbl"] = label,
@@ -186,21 +165,15 @@ internal sealed class GraphRepository : IGraphRepository
             ["propVal"] = value
         };
 
-        foreach (var kv in properties)
-        {
-            var propKey = kv.Key;
-            var bindingKey = $"p_{propKey}";
-            script += $".property('{propKey}', {bindingKey})";
-            bindings[bindingKey] = kv.Value!;
-        }
+        AppendProperties(script, bindings, properties);
 
-        var result = await SubmitAsync<Vertex>(script, bindings, ct);
+        var result = await SubmitAsync<Vertex>(script.ToString(), bindings, ct);
         return result.First();
     }
 
     public async Task<string?> UpsertVertexAndReturnIdAsync(string label, string key, object value, IDictionary<string, object> properties, CancellationToken ct = default)
     {
-        var script = "g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))";
+        var script = new StringBuilder("g.V().has(lbl, propKey, propVal).fold().coalesce(unfold(), addV(lbl).property(propKey, propVal))");
         var bindings = new Dictionary<string, object>
         {
             ["lbl"] = label,
@@ -208,16 +181,10 @@ internal sealed class GraphRepository : IGraphRepository
             ["propVal"] = value
         };
 
-        foreach (var kv in properties)
-        {
-            var propKey = kv.Key;
-            var bindingKey = $"p_{propKey}";
-            script += $".property('{propKey}', {bindingKey})";
-            bindings[bindingKey] = kv.Value!;
-        }
+        AppendProperties(script, bindings, properties);
 
-        script += ".id()";
-        var result = await SubmitAsync<object>(script, bindings, ct);
+        script.Append(".id()");
+        var result = await SubmitAsync<object>(script.ToString(), bindings, ct);
         return result.FirstOrDefault()?.ToString();
     }
 }

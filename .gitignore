@@ -8,6 +8,9 @@
 # Visual Studio Code detritus
 .vscode/
 
+# GitHub
+.github/copilot-instructions.md
+
 # ASP.NET Core development server files
 *.db        # SQLite or EF Core local DBs 
 
