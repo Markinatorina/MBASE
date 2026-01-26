@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using DAL.Repositories;
+using System.Text.Json;
+using BLL.Services;
+using BLL.Models;
 
 namespace API.Controllers
 {
@@ -7,56 +9,57 @@ namespace API.Controllers
     [ApiController]
     public class TestController : ControllerBase
     {
-        private readonly IGraphRepository _repo;
+        private readonly TestOpsService _service;
 
-        public TestController(IGraphRepository repo)
+        public TestController(TestOpsService service)
         {
-            _repo = repo;
+            _service = service;
         }
 
-        // GET api/test/ping -> quick connectivity + vertex count
+        private IActionResult ToActionResult(OperationResult result)
+            => result.StatusCode switch
+            {
+                201 => StatusCode(201, result.Body),
+                204 => NoContent(),
+                _ => StatusCode(result.StatusCode, result.Body)
+            };
+
         [HttpGet("ping")]
-        public async Task<ActionResult<object>> Ping()
-        {
-            var count = await _repo.CountVerticesAsync();
-            return Ok(new { status = "ok", vertexCount = count });
-        }
-        
-        // POST api/test/vertex/{label}
-        // body: { "key": "value", ... }
+        public async Task<IActionResult> Ping()
+            => ToActionResult(await _service.PingAsync());
+
         [HttpPost("vertex/{label}")]
-        public async Task<ActionResult<object>> CreateVertex([FromRoute] string label, [FromBody] Dictionary<string, object>? properties)
-        {
-            var props = properties ?? new Dictionary<string, object>();
-            var v = await _repo.AddVertexAsync(label, props);
-            return Ok(new { id = v.Id, label = v.Label, properties = v.Properties });
-        }
+        public async Task<IActionResult> CreateVertex(
+            [FromRoute] string label,
+            [FromBody] Dictionary<string, object>? properties)
+            => ToActionResult(await _service.CreateVertexAsync(label, properties));
 
-        // GET api/test/vertex/{id}
         [HttpGet("vertex/{id}")]
-        public async Task<ActionResult<object>> GetVertex([FromRoute] string id)
-        {
-            var v = await _repo.GetVertexByIdAsync(id);
-            if (v == null) return NotFound();
-            return Ok(new { id = v.Id, label = v.Label, properties = v.Properties });
-        }
+        public async Task<IActionResult> GetVertex([FromRoute] string id)
+            => ToActionResult(await _service.GetVertexAsync(id));
 
-        // PATCH api/test/vertex/{id}
-        // body: { "key": "value", ... }
         [HttpPatch("vertex/{id}")]
-        public async Task<IActionResult> UpdateVertex([FromRoute] string id, [FromBody] Dictionary<string, object> properties)
-        {
-            if (properties == null || properties.Count == 0) return BadRequest("No properties provided");
-            var updated = await _repo.UpdateVertexPropertiesAsync(id, properties);
-            return updated ? NoContent() : NotFound();
-        }
+        public async Task<IActionResult> UpdateVertex(
+            [FromRoute] string id,
+            [FromBody] Dictionary<string, object> properties)
+            => ToActionResult(await _service.UpdateVertexPropertiesAsync(id, properties));
 
-        // DELETE api/test/vertex/{id}
         [HttpDelete("vertex/{id}")]
         public async Task<IActionResult> DeleteVertex([FromRoute] string id)
-        {
-            var _ = await _repo.DeleteVertexAsync(id);
-            return NoContent();
-        }
+            => ToActionResult(await _service.DeleteVertexAsync(id));
+
+        [HttpDelete("wipe")]
+        public async Task<IActionResult> WipeGraph()
+            => ToActionResult(await _service.WipeGraphAsync());
+
+        [HttpPost("parse-references")]
+        public IActionResult ParseReferences([FromBody] JsonElement payload)
+            => ToActionResult(_service.ParseReferences(payload));
+
+        [HttpGet("lookup/{label}/{fhirId}")]
+        public async Task<IActionResult> LookupVertex(
+            [FromRoute] string label,
+            [FromRoute] string fhirId)
+            => ToActionResult(await _service.LookupVertexAsync(label, "id", fhirId));
     }
 }

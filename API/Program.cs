@@ -1,3 +1,4 @@
+using BLL.Services;
 using DAL;
 using DAL.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,8 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddLogging();
 
 // EF Core / PostgreSQL (local)
 var pgConnectionString = "Host=localhost;Port=5432;Database=mgravel_db;Username=postgres;Password=123456";
@@ -28,8 +31,17 @@ builder.Services.AddJanusGraph(o =>
     o.MaxInProcessPerConnection = 64;
 });
 
-// FHIR service
-builder.Services.AddScoped<BLL.Services.FHIRService>();
+// BLL Services
+builder.Services.AddSingleton<FhirValidationService>(); // Stateless, only loads schema once
+builder.Services.AddScoped<FhirReferenceService>();
+builder.Services.AddScoped<FhirPersistenceService>();
+builder.Services.AddScoped<FhirConditionalService>();
+builder.Services.AddScoped<FhirVersioningService>();
+builder.Services.AddScoped<FhirBundleService>();
+builder.Services.AddScoped<FhirPatientService>();
+builder.Services.AddScoped<FHIRService>();
+builder.Services.AddScoped<GraphOpsService>();
+builder.Services.AddScoped<TestOpsService>();
 
 var app = builder.Build();
 
